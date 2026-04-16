@@ -16,7 +16,7 @@ If this is your first time opening this repository, follow these steps in order:
 
 ```bash
 # 1) Clone
-git clone git@github.com:ExtraYiban/HidroKaltim.git
+git clone https://github.com/ExtraYiban/HidroKaltim.git
 
 # 2) Enter folder
 cd HidroKaltim

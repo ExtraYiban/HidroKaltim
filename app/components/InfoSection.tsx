@@ -2,7 +2,7 @@ const infoSection = () => {
     return (
         <div className="rounded-2xl bg-white p-8 shadow-lg">
             <div className="flex items-start gap-6">
-                <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-2xl bg-blue-100">
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-blue-100">
                     <svg className="h-8 w-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path
                             strokeLinecap="round"
