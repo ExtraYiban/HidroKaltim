@@ -12,7 +12,16 @@ interface Forecast {
 interface WeatherForecast {
     local_datetime: string;
     weather: number;
+    t: number;
+    weather_desc: string;
+    hu: number;
 }
+
+interface WeatherResponse {
+    cuaca: WeatherForecast[][];
+}
+
+export type RawWeatherData = WeatherResponse[];
 
 interface WeatherAlert {
     type: 'danger' | 'warning' | 'info' | 'success';
@@ -22,12 +31,12 @@ interface WeatherAlert {
 interface WeatherDashboardProps {
     loading: boolean;
     forecasts: Forecast[];
-    weatherData: any; // Data mentah untuk dianalisis getAnalyzeWeather24h
+    weatherData: RawWeatherData | null; // Data mentah untuk dianalisis getAnalyzeWeather24h
     WeatherMap: React.ComponentType;
 }
 
 // 2. Logic Analysis (Helper)
-const getAnalyzeWeather24h = (weatherData: any): WeatherAlert | null => {
+const getAnalyzeWeather24h = (weatherData: RawWeatherData | null): WeatherAlert | null => {
     if (!weatherData?.[0]?.cuaca) return null;
 
     const now = new Date();

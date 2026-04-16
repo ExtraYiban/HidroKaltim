@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Greeting from "./Greeting";
 import CurahHujan from "./CurahHujan";
+import type { RawWeatherData } from "./CurahHujan";
 import Feature from "./Feature";
 import InfoSection from "./InfoSection";
 import WeatherMap from "./WeatherMap";
@@ -23,13 +24,13 @@ const Body = () => {
     const [dataForecast, setDataForecast] = useState<Forecast[]>([]);
 
     // Tambahkan state untuk data mentah cuaca (untuk kebutuhan alert)
-    const [rawWeatherData, setRawWeatherData] = useState<any>(null);
+    const [rawWeatherData, setRawWeatherData] = useState<RawWeatherData | null>(null);
 
     useEffect(() => {
         const timer = setTimeout(() => {
             // 2. Mock API Response sesuai struktur yang diharapkan fungsi analisis
             // Struktur: Array -> Object -> cuaca -> Array -> Object
-            const mockFullResponse = [
+            const mockFullResponse: RawWeatherData = [
                 {
                     cuaca: [
                         [

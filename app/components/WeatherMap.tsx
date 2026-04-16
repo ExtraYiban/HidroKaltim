@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import L from "leaflet";
+import type { Map as LeafletMap, Marker as LeafletMarker } from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 type Props = {
@@ -11,30 +11,58 @@ type Props = {
 
 export default function WeatherMap({ lat, lng }: Props) {
     const mapRef = useRef<HTMLDivElement | null>(null);
-    const mapInstance = useRef<L.Map | null>(null);
+    const mapInstance = useRef<LeafletMap | null>(null);
+    const markerInstance = useRef<LeafletMarker | null>(null);
 
     useEffect(() => {
-        if (!mapRef.current || mapInstance.current) return;
+        if (!mapRef.current) return;
 
-        const map = L.map(mapRef.current).setView([lat, lng], 12);
+        if (mapInstance.current) {
+            mapInstance.current.setView([lat, lng], mapInstance.current.getZoom());
+            markerInstance.current?.setLatLng([lat, lng]);
+            return;
+        }
 
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            attribution: "&copy; OpenStreetMap contributors",
-        }).addTo(map);
+        let isMounted = true;
+        let rafId: number | null = null;
 
-        L.marker([lat, lng]).addTo(map);
+        void (async () => {
+            const L = await import("leaflet");
+            if (!isMounted || !mapRef.current || mapInstance.current) return;
 
-        mapInstance.current = map;
+            // Ensure marker assets resolve correctly when bundled by Next.js.
+            L.Icon.Default.mergeOptions({
+                iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+                iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+                shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+            });
 
-        requestAnimationFrame(() => {
-            map.invalidateSize();
-        });
+            const map = L.map(mapRef.current).setView([lat, lng], 12);
+
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                attribution: "&copy; OpenStreetMap contributors",
+            }).addTo(map);
+
+            markerInstance.current = L.marker([lat, lng]).addTo(map);
+
+            mapInstance.current = map;
+
+            rafId = requestAnimationFrame(() => {
+                if (!isMounted || mapInstance.current !== map || !mapRef.current) return;
+                map.invalidateSize();
+            });
+        })();
 
         return () => {
-            map.remove();
+            isMounted = false;
+            if (rafId !== null) {
+                cancelAnimationFrame(rafId);
+            }
+            markerInstance.current = null;
+            mapInstance.current?.remove();
             mapInstance.current = null;
         };
     }, [lat, lng]);
 
-    return <div ref={mapRef} className="h-[400px] w-full rounded-xl" />;
+    return <div ref={mapRef} className="h-full w-full rounded-xl" aria-label="OpenStreetMap" />;
 }

@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 const Header = () => {
     const navLinks = [
         { name: 'Beranda', active: true },
@@ -13,7 +15,7 @@ const Header = () => {
         <header className="flex items-center justify-between px-8 py-4 bg-white border-b border-gray-100 shadow-sm w-full">
             {/* Logo Section - Tanpa Ikon */}
             <div className="flex items-center gap-2">
-                <img src="/HidroKaltim.png" alt="" className="w-10 rounded-full" />
+                <Image src="/HidroKaltim.png" alt="Logo HidroKaltim" width={40} height={40} className="rounded-full" priority />
                 <span className="text-xl font-bold text-slate-800 tracking-tight">
                     Curah Hujan
                 </span>
