@@ -1,35 +1,36 @@
 # Backend Guide Pamungkas (Bahasa Indonesia)
 
-Panduan ini adalah versi final backend untuk aplikasi Next.js hasil migrasi. Kita pakai persona Guru supaya mudah dipahami.
+Panduan ini adalah modul pembelajaran utama backend untuk aplikasi Next.js hasil migrasi.
 
-Analogi utama:
+Kita pakai persona Guru agar mudah dicerna:
 
-- Database Prisma = Gudang dan Pantry bahan masakan.
-- Server Actions = Koki yang menerima pesanan.
-- Validasi Zod = Quality Control di dapur.
-- API eksternal BMKG = Supplier bahan segar harian.
+- Prisma ORM = Gudang/Pantry bahan.
+- Server Actions = Koki yang memasak pesanan.
+- Zod Validation = Quality Control dapur.
+- API BMKG = Supplier bahan segar harian.
 
-Arsitektur besar backend kita sekarang:
+## Tujuan Pembelajaran
 
-- Autentikasi sederhana tanpa verifikasi email.
-- Session berbasis cookie + tabel sessions.
-- Integrasi API BMKG dengan cache dan fallback.
-- Admin Panel dengan otorisasi role admin.
-- Data Table admin yang state-nya dikendalikan lewat URL (mirip Filament Laravel).
+Setelah membaca panduan ini, kamu akan paham:
 
-## 1) Prisma ORM: Cara Kita Menata Gudang Data
+- Cara mendefinisikan model data dengan Prisma.
+- Cara Server Actions menangani autentikasi dan manajemen user admin.
+- Cara mengambil dan memproses data cuaca live dari BMKG.
+- Cara panel admin mengelola search, sort, pagination berbasis URL seperti Filament.
 
-Lokasi utama definisi data ada di file:
+## 1) Prisma ORM: Menata Gudang Data
+
+Lokasi utama schema:
 
 - prisma/schema.prisma
 
-Model inti yang dipakai:
+Model inti yang dipakai saat ini:
 
-- User: data pengguna, role, password hash.
-- Session: sesi login aktif.
-- PasswordResetToken: token reset password.
+- User
+- Session
+- PasswordResetToken
 
-Contoh model kunci:
+Contoh potongan model:
 
 ```prisma
 enum UserRole {
@@ -49,16 +50,30 @@ model User {
 
   @@map("users")
 }
+
+model Session {
+  id           String   @id @db.VarChar(255)
+  userId       Int?     @map("user_id")
+  ipAddress    String?  @map("ip_address") @db.VarChar(45)
+  userAgent    String?  @map("user_agent")
+  payload      String   @db.LongText
+  lastActivity Int      @map("last_activity")
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([lastActivity])
+  @@map("sessions")
+}
 ```
 
 Penjelasan ala dapur:
 
-- Tabel User adalah rak utama bahan pelanggan.
-- Role adalah label chef biasa atau head chef admin.
-- Password disimpan dalam bentuk hash, bukan teks asli.
-- Session adalah tiket masuk dapur yang masih berlaku.
+- `User` adalah rak bahan utama pengguna.
+- `role` adalah label akses user biasa atau admin.
+- `Session` adalah tiket masuk dapur (siapa sedang login).
+- `PasswordResetToken` adalah kupon reset password sementara.
 
-Contoh ambil data dari gudang dengan Prisma:
+Contoh ambil data dari "gudang":
 
 ```ts
 const users = await prisma.user.findMany({
@@ -74,22 +89,24 @@ const totalUsers = await prisma.user.count();
 const totalAdmins = await prisma.user.count({ where: { role: "admin" } });
 ```
 
-## 2) Server Actions: Koki yang Mengolah Form dan Aksi Data
+## 2) Server Actions: Koki yang Mengolah Pesanan Form
 
-Lokasi utama aksi server:
+Lokasi penting:
 
 - app/(auth)/actions.ts
 - app/admin/users/actions.ts
 
-### 2.1 Autentikasi Dasar (Tanpa Verifikasi Email)
+### 2.1 Alur Autentikasi (Sudah Disederhanakan)
 
-Flow terbaru kita:
+Autentikasi terbaru tanpa verifikasi email.
 
-- Register sukses langsung create session lalu redirect ke /.
-- Login sukses langsung create session lalu redirect ke /.
-- Logout menghapus session lalu redirect ke /.
+Alurnya:
 
-Contoh register singkat:
+1. Register valid -> simpan user + hash password -> buat session -> redirect `/`.
+2. Login valid -> cek kredensial -> buat session -> redirect `/`.
+3. Logout -> hapus session -> redirect `/`.
+
+Contoh ringkas register action:
 
 ```ts
 export async function registerAction(_: ActionState, formData: FormData): Promise<ActionState> {
@@ -100,11 +117,18 @@ export async function registerAction(_: ActionState, formData: FormData): Promis
     password_confirmation: formData.get("password_confirmation"),
   });
 
-  if (!parsed.success) return validationError(parsed.error.flatten().fieldErrors);
+  if (!parsed.success) {
+    return validationError(parsed.error.flatten().fieldErrors);
+  }
 
   const passwordHash = await bcrypt.hash(parsed.data.password, 12);
   const user = await prisma.user.create({
-    data: { ...parsed.data, password: passwordHash, role: UserRole.user },
+    data: {
+      name: parsed.data.name,
+      email: parsed.data.email,
+      password: passwordHash,
+      role: UserRole.user,
+    },
   });
 
   await createSession(user.id);
@@ -114,77 +138,81 @@ export async function registerAction(_: ActionState, formData: FormData): Promis
 
 ### 2.2 Session Management
 
-Lokasi helper session:
+Lokasi helper:
 
 - lib/auth/session.ts
 
-Fungsi penting:
+Fungsi inti:
 
-- createSession(userId): membuat record session dan cookie hidrokaltim_session.
-- getCurrentUser(): membaca cookie, mencocokkan ke tabel sessions, lalu memuat user.
-- requireCurrentUser(): jika belum login, redirect ke /login.
-- destroySession(): menghapus session dari DB dan cookie browser.
+- `createSession(userId)`: buat record session + cookie `hidrokaltim_session`.
+- `getCurrentUser()`: baca cookie, cari session, muat user.
+- `requireCurrentUser()`: paksa login, jika tidak ada redirect ke `/login`.
+- `destroySession()`: hapus session dari DB + cookie.
 
-Contoh gate sederhana:
+Contoh gate login:
 
 ```ts
 const user = await getCurrentUser();
-if (!user) redirect("/login");
+if (!user) {
+  redirect("/login");
+}
 ```
 
-### 2.3 Manajemen User Admin
+### 2.3 Manajemen User Admin (Role & Delete)
 
 Lokasi:
 
 - app/admin/users/actions.ts
 
-Fitur admin yang sudah ada:
+Action penting:
 
-- updateUserRoleAction: ubah role user atau admin.
-- deleteUserAction: hapus user dan sesi terkait.
+- `updateUserRoleAction(formData)`
+- `deleteUserAction(formData)`
 
-Pengamanan penting:
+Pengamanan yang diterapkan:
 
-- Semua action admin memanggil requireAdminUser terlebih dahulu.
-- Admin tidak bisa menurunkan rolenya sendiri menjadi user.
-- Admin tidak bisa menghapus akun dirinya sendiri.
+- Wajib lolos `requireAdminUser()`.
+- Admin tidak boleh menurunkan role dirinya sendiri.
+- Admin tidak boleh menghapus akun dirinya sendiri.
 
-Contoh pola otorisasi:
+Contoh otorisasi admin:
 
 ```ts
 async function requireAdminUser() {
   const currentUser = await requireCurrentUser();
-  if (currentUser.role !== UserRole.admin) redirect("/");
+  if (currentUser.role !== UserRole.admin) {
+    redirect("/");
+  }
   return currentUser;
 }
 ```
 
-## 3) External API BMKG: Supplier Data Cuaca Live
+## 3) External APIs: BMKG Live di lib/weather.ts
 
-Lokasi integrasi utama:
+Lokasi utama:
 
 - lib/weather.ts
 
-Peran file ini:
+Peran modul ini:
 
-- Mengambil data prakiraan BMKG dari endpoint publik.
-- Menormalisasi payload agar bentuknya konsisten.
-- Menerapkan cache server agar hemat request.
-- Memberi fallback saat BMKG gagal sementara.
+- Ambil data prakiraan cuaca dari BMKG.
+- Normalisasi payload mentah agar aman dipakai UI.
+- Terapkan cache server 3 jam.
+- Sediakan fallback stale cache saat BMKG gagal.
 
 Konstanta utama:
 
-- BMKG_API_URL: endpoint resmi BMKG.
-- SAMARINDA_REGION_CODE: kode wilayah target.
-- CACHE_DURATION_SECONDS: masa cache 3 jam.
+- `BMKG_API_URL`
+- `SAMARINDA_REGION_CODE`
+- `CACHE_DURATION_SECONDS`
 
-Strategi pengambilan data:
+Strategi fetch:
 
-- Retry sampai 3 kali.
-- Timeout 5 detik per percobaan.
-- Parsing defensif agar data invalid tidak merusak UI.
+- Retry sampai 3 percobaan.
+- Timeout 5 detik setiap percobaan.
+- Parse defensif untuk mencegah data null/invalid merusak halaman.
 
-Contoh inti fetch + cache:
+Contoh cache dengan `unstable_cache`:
 
 ```ts
 const getCachedWeather = unstable_cache(
@@ -194,48 +222,44 @@ const getCachedWeather = unstable_cache(
     return { data, cachedAt };
   },
   ["bmkg-weather-samarinda"],
-  { revalidate: 60 * 60 * 3, tags: ["weather-bmkg"] },
+  {
+    revalidate: 60 * 60 * 3,
+    tags: ["weather-bmkg"],
+  },
 );
 ```
 
-Nilai balik getWeatherData:
+Output `getWeatherData()`:
 
-- success true dengan data normal.
-- atau success true + stale true jika pakai fallback cache.
-- atau success false jika benar-benar gagal total.
+- `success: true` dengan data normal.
+- `success: true, stale: true` saat memakai fallback cache.
+- `success: false` saat gagal total.
 
-## 4) URL-based State ala Filament: Search, Sort, Pagination di Server
+## 4) URL-based State ala Laravel Filament
 
 Lokasi implementasi:
 
 - app/admin/users/page.tsx
 - app/admin/users/actions.ts
 
-Konsep utamanya:
+Konsep intinya:
 
-- State tabel tidak disimpan di browser state lokal.
-- State dibawa lewat URL query string.
-- Server membaca query, lalu menjalankan query Prisma yang sesuai.
+- State tabel dibawa oleh URL query params, bukan client state lokal.
+- Server membaca URL, lalu eksekusi query Prisma sesuai parameter.
 
-Parameter URL yang dipakai:
+Parameter yang dipakai:
 
-- query: kata pencarian nama atau email.
-- sort: kolom sorting (name, email, createdAt).
-- dir: arah sorting (asc, desc).
-- page: nomor halaman.
-- toast: kode notifikasi sukses.
+- `query` -> pencarian nama/email.
+- `sort` -> kolom urut (`name`, `email`, `createdAt`).
+- `dir` -> arah urut (`asc`, `desc`).
+- `page` -> halaman saat ini.
+- `toast` -> kode notifikasi sukses.
 
 Contoh URL:
 
 ```txt
-/admin/users?query=rafi&sort=createdAt&dir=desc&page=2
+/admin/users?query=zidane&sort=createdAt&dir=desc&page=2
 ```
-
-Kenapa pola ini kuat:
-
-- Link bisa dibagikan dan menghasilkan tampilan tabel yang sama.
-- SEO dan SSR lebih rapi dibanding state murni client.
-- Sangat mirip pengalaman Laravel Filament.
 
 Contoh query server-side:
 
@@ -254,199 +278,16 @@ Contoh menjaga state setelah action:
 redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}toast=role_updated`);
 ```
 
-Artinya setelah admin update role atau delete user, user tetap kembali ke halaman, filter, sort, dan page yang sama, plus dapat feedback sukses.
+Artinya setelah update role atau delete user, admin kembali ke state tabel yang sama (filter/sort/page tetap), lalu melihat feedback sukses.
 
-## 5) Ringkasan Mental Model Backend
+## 5) Checklist Mental Model Backend
 
-Jika kamu mengajar junior, pakai urutan ini:
+Saat belajar atau onboarding, baca berurutan:
 
-1. Lihat schema.prisma dulu, pahami rak data di gudang.
-2. Lihat Server Actions, pahami koki menerima pesanan form.
-3. Lihat session.ts, pahami tiket masuk dapur.
-4. Lihat lib/weather.ts, pahami supplier eksternal + cache.
-5. Lihat admin/users/page.tsx, pahami state tabel dari URL.
+1. `prisma/schema.prisma` -> pahami struktur gudang data.
+2. `lib/auth/session.ts` -> pahami tiket login/session.
+3. `app/(auth)/actions.ts` -> pahami alur koki autentikasi.
+4. `lib/weather.ts` -> pahami supplier BMKG + cache.
+5. `app/admin/users/page.tsx` + `app/admin/users/actions.ts` -> pahami URL state + aksi admin.
 
-Dengan pola ini, backend tidak terasa abstrak lagi. Semua terasa seperti dapur profesional yang rapi: bahan jelas, alur kerja jelas, dan hasil masakan konsisten.
-```
-
-How this flow maps mentally:
-
-1. Chef receives input.
-2. Chef asks Bouncer (Zod).
-3. Chef checks Pantry (Prisma) for token/password/user.
-4. Chef updates safe auth state and redirects.
-
----
-
-## Where to Look in This Next.js Project
-
-Main files for these lessons:
-
-- Prisma models: prisma/schema.prisma
-- Zod schemas: lib/validation/auth-profile.ts
-- Server Actions: app/(auth)/actions.ts
-- Session utilities: lib/auth/session.ts
-- Auth pages/forms: app/(auth)/*
-
-Tip for new developers:
-
-When debugging, always follow this order:
-
-1. Form fields in page/form component.
-2. Server Action receiving FormData.
-3. Zod validation output.
-4. Prisma query/mutation.
-5. Redirect/result message.
-
----
-
-## Feature Lesson 4: Email Verification Throttling (Laravel throttle:6,1 Equivalent)
-
-### The Concept
-
-Imagine a doorbell at your house.
-If someone presses it 30 times in 10 seconds, you need a limiter.
-
-That is what throttling does: it limits how often a user can request an action.
-
-Target behavior from Laravel route middleware `throttle:6,1`:
-
-- Maximum 6 requests
-- In 1 minute window
-
-### The Database (Prisma)
-
-We reused this model:
-
-```prisma
-model EmailVerificationToken {
-  id        Int      @id @default(autoincrement())
-  userId    Int      @map("user_id")
-  token     String   @unique @db.VarChar(255)
-  expiresAt DateTime @map("expires_at")
-  createdAt DateTime @default(now()) @map("created_at")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([expiresAt])
-  @@map("email_verification_tokens")
-}
-```
-
-Why this is enough for throttling:
-
-- Every resend creates one token row.
-- `createdAt` tells us when requests happened.
-- We can count how many rows were created in the last 60 seconds.
-
-### The Bouncer (Zod)
-
-For throttling itself, no new input fields were introduced, so we did not need a new Zod schema.
-
-Important idea:
-
-- Zod protects input shape.
-- Throttling protects system behavior (request frequency).
-- Both are safety layers, but for different risks.
-
-### The Chef (Server Actions)
-
-Code used in `sendVerificationEmailAction`:
-
-```ts
-const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
-const recentRequestsCount = await prisma.emailVerificationToken.count({
-  where: {
-    userId: currentUser.id,
-    createdAt: {
-      gte: oneMinuteAgo,
-    },
-  },
-});
-
-if (recentRequestsCount >= 6) {
-  return {
-    success: false,
-    message: "Terlalu banyak permintaan verifikasi. Coba lagi dalam 1 menit.",
-  };
-}
-```
-
-Step-by-step:
-
-1. Chef calculates the time boundary (now minus 1 minute).
-2. Chef asks Pantry how many resend tokens this user created since that boundary.
-3. If count is 6 or more, Chef refuses request and returns friendly error message.
-4. If still under limit, Chef proceeds to create a new verification token.
-
-This is the practical equivalent of Laravel `throttle:6,1` for this flow.
-
----
-
-## Feature Lesson 5: Dashboard Weather Integration (Replacing WeatherController)
-
-### The Concept
-
-In Laravel, `WeatherController` was the person responsible for:
-
-1. Calling BMKG API.
-2. Caching results for 3 hours.
-3. Returning normalized weather data.
-4. Providing fallback stale data when API fails.
-
-In Next.js App Router, we moved this logic to server-side utility functions and Server Components:
-
-- `lib/weather.ts` is the Chef logic for BMKG integration.
-- `app/dashboard/page.tsx` is the Waiter that asks Chef for prepared data.
-
-### The Database (Prisma)
-
-For this specific weather slice, we do not store BMKG weather in Prisma tables.
-
-Pantry note:
-
-- Prisma remains the Pantry for user/auth domain.
-- Weather data is external (BMKG), so we cache server-side via Next cache instead of DB persistence.
-
-### The Bouncer (Zod)
-
-This weather read flow does not receive raw user form data, so no new Zod schema is required here.
-
-Safety still exists in another way:
-
-- We normalize BMKG payload shape in code (only fields needed by frontend).
-- This acts like structural filtering before data reaches UI.
-
-### The Chef (Server-Side Data Functions)
-
-Core code is in `lib/weather.ts`:
-
-```ts
-const getCachedWeather = unstable_cache(
-  async () => {
-    const data = await fetchWeatherFromBMKG();
-    const cachedAt = new Date().toISOString();
-    fallbackCache = { data, cachedAt };
-    return { data, cachedAt };
-  },
-  ["bmkg-weather-samarinda"],
-  { revalidate: 60 * 60 * 3, tags: ["weather-bmkg"] },
-);
-```
-
-How Chef works step-by-step:
-
-1. Chef calls BMKG API with retry + timeout.
-2. Chef normalizes payload into compact format used by widgets.
-3. Chef stores response in Next cache for 3 hours.
-4. Chef keeps fallback in-memory cache for stale mode when API is unavailable.
-
-Equivalent to Laravel behaviors:
-
-- `index()` -> `getWeatherData()` in `lib/weather.ts`, consumed directly by `app/dashboard/page.tsx`.
-- `refresh()` -> `refreshWeatherAction()` in `app/dashboard/actions.ts` that triggers `revalidateTag("weather-bmkg")`.
-
-Result:
-
-- No API route required.
-- Server Component directly receives prepared weather data from Chef.
+Dengan pola ini, backend terasa seperti dapur profesional: alur kerja jelas, bahan rapi, dan hasil selalu konsisten.
