@@ -16,7 +16,10 @@ export function ForgotPasswordForm() {
     setErrors({});
 
     const formData = new FormData(e.currentTarget);
-    const result = await requestPasswordResetAction({} as any, formData);
+    const result = await requestPasswordResetAction(
+      { success: false, message: '', errors: {} },
+      formData
+    );
 
     setIsPending(false);
     if (result?.success) {

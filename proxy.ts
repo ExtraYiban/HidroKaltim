@@ -10,7 +10,7 @@ const SESSION_SECRET = new TextEncoder().encode(
 const protectedRoutes = ['/dashboard', '/profile', '/admin'];
 const publicAuthRoutes = ['/login', '/register', '/forgot-password', '/reset-password'];
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   // Get session cookie
@@ -32,7 +32,7 @@ export async function middleware(request: NextRequest) {
     try {
       await jwtVerify(sessionCookie, SESSION_SECRET);
       isAuthenticated = true;
-    } catch (error) {
+    } catch {
       isAuthenticated = false;
     }
   }

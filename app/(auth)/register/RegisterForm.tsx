@@ -17,7 +17,10 @@ export function RegisterForm() {
     setErrors({});
 
     const formData = new FormData(e.currentTarget);
-    const result = await registerAction({} as any, formData);
+    const result = await registerAction(
+      { success: false, message: '', errors: {} },
+      formData
+    );
 
     setIsPending(false);
     if (result?.success) {

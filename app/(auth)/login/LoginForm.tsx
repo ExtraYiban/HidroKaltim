@@ -17,7 +17,10 @@ export function LoginForm() {
     setErrors({});
 
     const formData = new FormData(e.currentTarget);
-    const result = await loginAction({} as any, formData);
+    const result = await loginAction(
+      { success: false, message: '', errors: {} },
+      formData
+    );
 
     setIsPending(false);
     if (result?.success) {

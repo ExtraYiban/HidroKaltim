@@ -30,7 +30,10 @@ function ResetPasswordFormContent() {
     formData.append('token', token);
     formData.append('email', email);
 
-    const result = await resetPasswordAction({} as any, formData);
+    const result = await resetPasswordAction(
+      { success: false, message: '', errors: {} },
+      formData
+    );
 
     setIsPending(false);
     if (result?.success) {
