@@ -13,11 +13,13 @@
     "apexcharts": "^5.10.6",
     "bcryptjs": "^3.0.3",
     "dotenv": "^17.4.2",
+    "jose": "^5.10.0",
     "leaflet": "^1.9.4",
     "next": "^16.2.4",
     "react": "19.2.4",
     "react-apexcharts": "^2.1.0",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "sonner": "^2.0.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

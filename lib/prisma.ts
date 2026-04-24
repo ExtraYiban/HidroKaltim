@@ -13,6 +13,11 @@ interface Prismalike {
   session: {
     deleteMany: (args: any) => Promise<any>;
   };
+  passwordResetToken: {
+    findUnique: (args: any) => Promise<any>;
+    upsert: (args: any) => Promise<any>;
+    delete: (args: any) => Promise<any>;
+  };
 }
 
 const globalForPrisma = globalThis as unknown as { prisma: Prismalike | undefined };
@@ -29,6 +34,11 @@ const mockPrisma: Prismalike = {
   },
   session: {
     deleteMany: async () => null,
+  },
+  passwordResetToken: {
+    findUnique: async () => null,
+    upsert: async () => null,
+    delete: async () => null,
   },
 };
 
